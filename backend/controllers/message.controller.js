@@ -1,44 +1,54 @@
 import Conversation from "../models/conversation.model.js";
 import Message from "../models/message.model.js";
+import { getReceiverSocketId, io } from "../socket/socket.js";
 
 export const sendMessage = async (req, res) => {
   try {
-    const { message } = req.body; //getting message from request body(user input)
-    const { id: receiverID } = req.params;
-    const senderID = req.user._id; //getting senderID from user object because we have already set it in protectRoutes middleware
+		console.log("Request body:", req.body);
+		console.log("Request params:", req.params);
+		console.log("Authenticated user ID:", req.user._id);
+
+    const { message } = req.body;
+    const { id: receiverId } = req.params;
+    const senderId = req.user._id;
+
     let conversation = await Conversation.findOne({
-      participants: { $all: [senderID, receiverID] },
+      participants: { $all: [senderId, receiverId] },
     });
 
-    //if doesn't exist, create a new conversation
     if (!conversation) {
       conversation = await Conversation.create({
-        participants: [senderID, receiverID],
+        participants: [senderId, receiverId],
       });
     }
 
     const newMessage = new Message({
-      senderID,
-      receiverID,
+      senderId,
+      receiverId,
       message,
     });
 
-    //put message in array of messages in conversation
     if (newMessage) {
       conversation.messages.push(newMessage._id);
     }
 
-    // await newMessage.save();
     // await conversation.save();
+    // await newMessage.save();
 
-    //use Promise.all to save both message and conversation, run them in parallel
-    await Promise.all([newMessage.save(), conversation.save()]);
+    // this will run in parallel
+    await Promise.all([conversation.save(), newMessage.save()]);
 
-    //send message as response
+    // SOCKET IO FUNCTIONALITY WILL GO HERE
+    const receiverSocketId = getReceiverSocketId(receiverId);
+    if (receiverSocketId) {
+      // io.to(<socket_id>).emit() used to send events to specific client
+      io.to(receiverSocketId).emit("newMessage", newMessage);
+    }
+
     res.status(201).json(newMessage);
   } catch (error) {
-    console.log("Error in sendMessage controller", error.message);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.log("Error in sendMessage controller: ", error.message);
+    res.status(500).json({ error: "Internal server error" });
   }
 };
 
